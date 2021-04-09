@@ -46,7 +46,7 @@ namespace MiniAccountServer.Database
 
         private String _strTokenExists = "SELECT * FROM resetToken WHERE token LIKE @token";
 
-        private String _strTokenUpdate = 
+        private String _strTokenUpdate =
             "UPDATE resetToken SET token=@token WHERE name LIKE @name;" +
             "UPDATE resetToken SET expireDate=@expireDate WHERE name LIKE @name;" +
             "UPDATE resetToken SET tokenUsed=@tokenUsed WHERE name LIKE @name";
@@ -88,21 +88,21 @@ namespace MiniAccountServer.Database
             _createAccountCmd.Parameters.AddWithValue("@permission", permission);
             _createAccountCmd.Parameters.AddWithValue("@email", email);
 
-            if(_createAccountCmd.ExecuteNonQuery() != 1)
+            if (_createAccountCmd.ExecuteNonQuery() != 1)
             {
                 return null;
             }
 
             return new Account
-                       {
-                           DateCreated = dateCreated,
-                           LastAccessed = lastAccess,
-                           SessionId = Guid.Parse(ticket),
-                           Username = username,
-                           Password = password,
-                           Permission = permission,
-                           Email = email
-                       };
+            {
+                DateCreated = dateCreated,
+                LastAccessed = lastAccess,
+                SessionId = Guid.Parse(ticket),
+                Username = username,
+                Password = password,
+                Permission = permission,
+                Email = email
+            };
         }
 
         /// <summary>
@@ -173,7 +173,7 @@ namespace MiniAccountServer.Database
             update.Parameters.AddWithValue("@ipaddress", IPAddress);
 
             update.ExecuteNonQuery();
-            
+
             var cmd = new SqlCommand(_strAccountValid, _connection);
 
             cmd.Parameters.AddWithValue("@name", username);
@@ -187,16 +187,16 @@ namespace MiniAccountServer.Database
                 reader.Read();
 
                 return new Account
-                           {
-                               Id = reader.GetInt64(0),
-                               Username = reader.GetString(1),
-                               Password = reader.GetString(2),
-                               SessionId = Guid.Parse(reader.GetString(3)),
-                               DateCreated = reader.GetDateTime(4),
-                               LastAccessed = reader.GetDateTime(5),
-                               Permission = reader.GetInt32(6),
-                               Email = reader.GetString(7),
-                           };
+                {
+                    Id = reader.GetInt64(0),
+                    Username = reader.GetString(1),
+                    Password = reader.GetString(2),
+                    SessionId = Guid.Parse(reader.GetString(3)),
+                    DateCreated = reader.GetDateTime(4),
+                    LastAccessed = reader.GetDateTime(5),
+                    Permission = reader.GetInt32(6),
+                    Email = reader.GetString(7),
+                };
             }
         }
 
@@ -205,7 +205,27 @@ namespace MiniAccountServer.Database
         /// </summary>
         public bool IsTokenValid(string token)
         {
-            //TODO: Add validation checks here
+            string test = string.Empty;
+            var cmd = new SqlCommand(_strTokenExists, _connection);
+
+            cmd.Parameters.AddWithValue("@token", token);
+
+            using (var reader = cmd.ExecuteReader())
+            {
+                if (!reader.HasRows)
+                    return false;
+
+                reader.Read();
+                reader.GetInt64(0); //ID
+                reader.GetInt64(1); //Account ID
+                reader.GetString(2); //Name
+                test = reader.GetString(3); //Token
+
+                reader.Close();
+            }
+
+            if (token.Equals(test))
+                return true;
 
             return false;
         }
@@ -215,9 +235,16 @@ namespace MiniAccountServer.Database
         /// </summary>
         public bool TokenUsernameExists(string username)
         {
-            //TODO: Add checks for username here
+            var cmd = new SqlCommand(_strTokenUserExists, _connection);
+            cmd.Parameters.AddWithValue("@name", username);
 
-            return false;
+            using (var reader = cmd.ExecuteReader())
+            {
+                if (!reader.HasRows)
+                    return false;
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -227,7 +254,25 @@ namespace MiniAccountServer.Database
         {
             bool tokenUsed = false;
 
-            //TODO: Check to see if token has been used
+            var cmd = new SqlCommand(_strTokenExists, _connection);
+
+            cmd.Parameters.AddWithValue("@token", token);
+
+            using (var reader = cmd.ExecuteReader())
+            {
+                if (!reader.HasRows)
+                    return false;
+
+                reader.Read();
+                reader.GetInt64(0); //ID
+                reader.GetInt64(1); //Account ID
+                reader.GetString(2); //Name
+                reader.GetString(3); //Token
+                reader.GetDateTime(4); //Expire Date
+                tokenUsed = reader.GetBoolean(5); //Token Used
+
+                reader.Close();
+            }
 
             return tokenUsed;
         }
@@ -239,7 +284,27 @@ namespace MiniAccountServer.Database
         {
             DateTime expireDate;
 
-            //TODO: Make checks for date and time here
+            var cmd = new SqlCommand(_strTokenExists, _connection);
+
+            cmd.Parameters.AddWithValue("@token", token);
+
+            using (var reader = cmd.ExecuteReader())
+            {
+                if (!reader.HasRows)
+                    return false;
+
+                reader.Read();
+                reader.GetInt64(0); //ID
+                reader.GetInt64(1); //Account ID
+                reader.GetString(2); //Name
+                reader.GetString(3); //Token
+                expireDate = reader.GetDateTime(4); //Expire Date
+
+                reader.Close();
+            }
+
+            if (DateTime.Now >= expireDate)
+                return true;
 
             return false;
         }
@@ -251,7 +316,24 @@ namespace MiniAccountServer.Database
         {
             username = string.Empty;
 
-            //TODO: Add the username check here and output it
+            var cmd = new SqlCommand(_strEmailExists, _connection);
+            cmd.Parameters.AddWithValue("@email", email);
+
+            using (var reader = cmd.ExecuteReader())
+            {
+                if (!reader.HasRows)
+                    return false;
+
+                reader.Read();
+
+                reader.GetInt64(0); //ID
+                username = reader.GetString(1);
+
+                reader.Close();
+            }
+
+            if (!string.IsNullOrWhiteSpace(username))
+                return true;
 
             return false;
         }
@@ -262,10 +344,125 @@ namespace MiniAccountServer.Database
         public bool AccountReset(string username, out string[] parameters)
         {
             parameters = null;
+            string email = null;
+            long accountID;
+            bool updating = false;
 
-            //TODO: Add the reset function for the database here
+            //Lets try getting the account id and generate a token first
+            var cmd = new SqlCommand(_strUsernameExists, _connection);
 
-            return false;
+            cmd.Parameters.AddWithValue("@name", username);
+
+            using (var reader = cmd.ExecuteReader())
+            {
+                if (!reader.HasRows)
+                    return false;
+
+                reader.Read();
+
+                accountID = reader.GetInt64(0); //ID
+                reader.GetString(1); //Name
+                reader.GetString(2); //Password
+                reader.GetString(3); //Session ID
+                reader.GetDateTime(4); //Date Created
+                reader.GetDateTime(5); //Last Accessed
+                reader.GetInt32(6); //Server Permission
+                email = reader.GetString(7); //Email
+
+                reader.Close();
+            }
+
+            if (email == null)
+                return false;
+
+            //Lets generate
+            string token = Crypto.GenerateToken();
+            if (string.IsNullOrEmpty(token))
+                return false;
+
+            parameters = new string[] { email, token };
+
+            //Do we have a user created already?
+            if (TokenUsernameExists(username))
+            {   //We have one
+                //Check for a pending request first
+                DateTime tokenDate;
+                bool tokenUsed;
+                string oldToken = string.Empty;
+                cmd = new SqlCommand(_strTokenUserExists, _connection);
+
+                cmd.Parameters.AddWithValue("@name", username);
+
+                using (var reader = cmd.ExecuteReader())
+                {
+                    if (!reader.HasRows)
+                        return false;
+
+                    reader.Read();
+                    reader.GetInt64(0); //ID
+                    reader.GetInt64(1); //Account ID
+                    reader.GetString(2); //Name
+                    oldToken = reader.GetString(3); //Token
+                    tokenDate = reader.GetDateTime(4); //Expire Date
+                    tokenUsed = reader.GetBoolean(5); //Token Used
+
+                    reader.Close();
+                }
+
+                //If the token hasnt been used and hasnt expired
+                //then just resend the old token
+                if (!string.IsNullOrEmpty(oldToken) &&
+                    tokenDate > DateTime.Now && !tokenUsed)
+                {
+                    parameters = new string[] { email, oldToken };
+                    return true;
+                }
+                updating = true;
+            }
+            else
+            {   //Creating
+                //Save the token to the database
+                cmd = new SqlCommand(_strCreateToken, _connection);
+
+                cmd.Parameters.AddWithValue("@account", accountID);
+                cmd.Parameters.AddWithValue("@name", username);
+                cmd.Parameters.AddWithValue("@token", token);
+                cmd.Parameters.AddWithValue("@expireDate", DateTime.Now.AddHours(48));
+                cmd.Parameters.AddWithValue("@tokenUsed", false);
+                try
+                {
+                    if (cmd.ExecuteNonQuery() != 1)
+                        return false;
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e.ToString());
+                    return false;
+                }
+            }
+
+            if (updating)
+            {   //Updating
+                //We had one but it expired, lets reuse the data structure
+                var update = new SqlCommand(_strTokenUpdate, _connection);
+
+                update.Parameters.AddWithValue("@name", username);
+                update.Parameters.AddWithValue("@token", token);
+                update.Parameters.AddWithValue("@expireDate", DateTime.Now.AddHours(48));
+                update.Parameters.AddWithValue("@tokenUsed", false);
+
+                try
+                {
+                    update.ExecuteNonQuery();
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e.ToString());
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -273,7 +470,7 @@ namespace MiniAccountServer.Database
         /// </summary>
         public bool AccountPasswordUpdate(string token, string password)
         {
-            //TODO: Add the update method for the database here            
+            //TODO: Do the reset password for the server side here and send a true or false back to the user
 
             return false;
         }
@@ -286,8 +483,43 @@ namespace MiniAccountServer.Database
             if (!System.IO.File.Exists("email.xml"))
                 return false;
 
-            //TODO: Make a UTF compliant email and have it sent using
-            //infantry's google email account
+            try
+            {
+                _config = new Xmlconfig("email.xml", false).Settings;
+                string from = _config["credentials/username"].Value;
+                string to = email;
+
+                System.Net.Mail.MailMessage mail = new System.Net.Mail.MailMessage(from, to);
+                mail.Subject = "Recovery Request";
+                mail.Body = _config["response/topic"].Value + "\n\r";
+                //Recovery or reset?
+                if (!string.IsNullOrWhiteSpace(token))
+                {   //Reset
+                    mail.Body += _config["response/resetmsg"].Value;
+                    mail.Body += "\n\r";
+                    mail.Body += _config["response/link"].Value + System.Web.HttpUtility.UrlEncode(token);
+                }
+                else
+                {   //Recovery
+                    mail.Body += string.Format(_config["response/recoverymsg"].Value, username);
+                }
+
+                mail.Body += "\n\r\n\r" + _config["response/endmsg"].Value;
+
+                System.Net.Mail.SmtpClient smtpClient = new System.Net.Mail.SmtpClient("smtp.gmail.com");
+                smtpClient.Port = _config["credentials/port"].intValue;
+                smtpClient.EnableSsl = true;
+                smtpClient.DeliveryMethod = System.Net.Mail.SmtpDeliveryMethod.Network;
+                smtpClient.UseDefaultCredentials = false;
+                smtpClient.Credentials = new System.Net.NetworkCredential(from, _config["credentials/password"].Value);
+
+                smtpClient.Send(mail);
+                return true;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.ToString());
+            }
             return false;
         }
 
@@ -297,9 +529,28 @@ namespace MiniAccountServer.Database
         public string EncodeEmail(string email)
         {
             string response = string.Empty;
+            string[] split = email.Split('@');
 
-            //TODO: Parse the email and encode it with *
-
+            if (split[0].Length > 3)
+            {
+                response = split[0].Substring(0, 4);
+                for (int i = 0; i < split[0].Length; i++)
+                {
+                    //Skip the first 4
+                    if (i < 4)
+                    { continue; }
+                    response += "*";
+                }
+                response += "@" + split[1];
+            }
+            else
+            {
+                for (int i = 0; i < split[0].Length; i++)
+                {
+                    response += "*";
+                }
+                response += "@" + split[1];
+            }
             return response;
         }
     }

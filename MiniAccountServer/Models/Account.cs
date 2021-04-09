@@ -67,13 +67,13 @@ namespace MiniAccountServer.Models
         /// <param name="email">The email to verify</param>
         /// <returns>true if valid</returns>
         public static bool IsValidEmail(string email)
-		{
-			if (string.IsNullOrEmpty(email))
-			    return false;
+        {
+            if (string.IsNullOrEmpty(email))
+                return false;
 
             Regex ematch = new Regex(@"^[\w!#$%&'*+\-/=?\^_`{|}~]+(\.[\w!#$%&'*+\-/=?\^_`{|}~]+)*" + "@" + @"((([\-\w]+\.)+[a-zA-Z]{2,4})|(([0-9]{1,3}\.){3}[0-9]{1,3}))$");
-            return ematch.IsMatch(email) && !email.EndsWith("."); 
-		}
+            return ematch.IsMatch(email) && !email.EndsWith(".");
+        }
 
         #endregion
 
@@ -87,9 +87,39 @@ namespace MiniAccountServer.Models
 
             public bool IsRequestValid()
             {
-                return (!string.IsNullOrWhiteSpace(Username) 
+                return (!string.IsNullOrWhiteSpace(Username)
                     && !string.IsNullOrWhiteSpace(PasswordHash)
                     && !string.IsNullOrWhiteSpace(Email));
+            }
+        }
+
+        public class RecoverRequestModel
+        {
+            public string Username { get; set; }
+            public string Email { get; set; }
+            public bool Reset { get; set; }
+
+            public bool IsRequestValid()
+            {
+                if (Reset && !string.IsNullOrWhiteSpace(Username))
+                    return true;
+
+                if (!Reset && !string.IsNullOrWhiteSpace(Email))
+                    return true;
+
+                return false;
+            }
+        }
+
+        public class ResetRequestModel
+        {
+            public string Token { get; set; }
+            public string Password { get; set; }
+
+            public bool IsRequestValid()
+            {
+                return (!string.IsNullOrWhiteSpace(Token)
+                    && !string.IsNullOrWhiteSpace(Password));
             }
         }
 

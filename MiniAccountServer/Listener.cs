@@ -17,7 +17,7 @@ namespace MiniAccountServer
         private HttpListener httpListener;
         private DatabaseClient client;
 
-        private string[] prefixes = {@"http://0.0.0.0:1437/Account/"};
+        private string[] prefixes = { @"http://0.0.0.0:1437/Account/" };
 
         /// <summary>
         /// Generic Constructor
@@ -88,7 +88,12 @@ namespace MiniAccountServer
                     case "GET":
                         byte[] responseString;
 
-                        //TODO: ADD the token validation here
+                        //We verifying a password reset token?
+                        if (request.Url.AbsolutePath.Contains("verify-token"))
+                        {
+                            //TODO: check for token and verify its data
+                            break;
+                        }
 
                         //Ping
                         responseString = Encoding.UTF8.GetBytes("Works!");
@@ -139,17 +144,17 @@ namespace MiniAccountServer
 
                             break;
                         }
-                        
+
                         // 5. Is the email already used?
-			            if (client.EmailExists(regModel.Email))
-			            {
-			                response.StatusCode = 409; //Conflict
+                        if (client.EmailExists(regModel.Email))
+                        {
+                            response.StatusCode = 409; //Conflict
                             response.StatusDescription = "Email already exists.";
-			                response.OutputStream.Close();
-					
-			                break;
-		        	    }
-						
+                            response.OutputStream.Close();
+
+                            break;
+                        }
+
                         // Add it to the database, and we're good to go!
                         var account = client.AccountCreate(regModel.Username, regModel.PasswordHash,
                                                            Guid.NewGuid().ToString(),
@@ -182,8 +187,183 @@ namespace MiniAccountServer
                             break;
                         }
 
-                        //TODO: Add the username and password recovery requests here
-                        
+                        //Are we doing a recovery request?
+                        if (request.Url.AbsolutePath.Contains("recover"))
+                        {
+                            byte[] RequestResponseData;
+                            string emailResponse;
+                            string resetData = new StreamReader(request.InputStream).ReadToEnd();
+                            var resetModel = JsonConvert.DeserializeObject<Account.RecoverRequestModel>(resetData);
+
+                            // 2. Is the data valid?
+                            if (!resetModel.IsRequestValid())
+                            {
+                                response.StatusCode = 400; //BadRequest
+                                response.StatusDescription = (resetModel.Reset ? "Username " : "Email ") + "cannot be blank.";
+                                response.OutputStream.Close();
+
+                                break;
+                            }
+
+                            //Username Recovery
+                            if (!resetModel.Reset)
+                            {
+                                // 3a. Are the credentials good?
+                                if (resetModel.Email != null && !client.EmailExists(resetModel.Email))
+                                {
+                                    response.StatusCode = 404; //Not Found
+                                    response.StatusDescription = "Email doesn't exist.";
+                                    response.OutputStream.Close();
+
+                                    break;
+                                }
+
+                                // 3b. Are the credentials good?
+                                if (!Account.IsValidEmail(resetModel.Email))
+                                {
+                                    response.StatusCode = 400; //Bad Request
+                                    response.StatusDescription = "Incorrect email format. Ex: me@mydomain.com";
+                                    response.OutputStream.Close();
+
+                                    break;
+                                }
+
+                                // 4a. Was it successful?
+                                string username;
+                                if (!client.AccountRecover(resetModel.Email, out username))
+                                {
+                                    response.StatusCode = 500; //Internal Server Error
+                                    response.StatusDescription = "Server Error: Couldn't retrieve your account info.";
+                                    response.OutputStream.Close();
+
+                                    break;
+                                }
+
+                                //Try sending an account recovery mail
+                                //4b. Was it successful?
+                                if (!client.AccountSendMail(resetModel.Email, username, null))
+                                {
+                                    response.StatusCode = 500; //Internal Server Error
+                                    response.StatusDescription = "Server Error: Failed to send recovery info.";
+                                    response.OutputStream.Close();
+
+                                    break;
+                                }
+
+                                // Done!
+                                RequestResponseData = Encoding.UTF8.GetBytes(resetModel.Email);
+
+                                response.StatusCode = 200; //OK
+                                response.ContentLength64 = RequestResponseData.Length;
+                                response.OutputStream.Write(RequestResponseData, 0, RequestResponseData.Length);
+                                response.OutputStream.Close();
+                                break;
+                            }
+
+                            //Password Reset. 
+                            //Try generating a reset token
+                            else
+                            {
+                                // 3. Are the credentials good?
+                                if (resetModel.Username != null && !client.UsernameExists(resetModel.Username))
+                                {
+                                    response.StatusCode = 404; //Not Found
+                                    response.StatusDescription = "Username doesn't exist.";
+                                    response.OutputStream.Close();
+
+                                    break;
+                                }
+
+                                // 4a. Was it successful?
+                                string[] parameters; //Email = 0, Token = 1
+                                if (!client.AccountReset(resetModel.Username, out parameters))
+                                {
+                                    response.StatusCode = 500; //Internal Server Error
+                                    response.StatusDescription = "Server error: Reset creation failed.";
+                                    response.OutputStream.Close();
+
+                                    break;
+                                }
+
+                                //Try sending a password reset link
+                                // 4b. Was it successful?
+                                if (!client.AccountSendMail(parameters[0], resetModel.Username, parameters[1]))
+                                {
+                                    response.StatusCode = 500; //Internal Server Error
+                                    response.StatusDescription = "Server Error: Failed to send reset link.";
+                                    response.OutputStream.Close();
+
+                                    break;
+                                }
+                                emailResponse = client.EncodeEmail(parameters[0]);
+                            }
+
+                            // Done!
+                            RequestResponseData = Encoding.UTF8.GetBytes(emailResponse);
+
+                            response.StatusCode = 200; //OK
+                            response.ContentLength64 = RequestResponseData.Length;
+                            response.OutputStream.Write(RequestResponseData, 0, RequestResponseData.Length);
+                            response.OutputStream.Close();
+                            break;
+                        }
+
+                        //Are we resetting a password?
+                        if (request.Url.AbsolutePath.Contains("reset-password"))
+                        {
+                            string resetData = new StreamReader(request.InputStream).ReadToEnd();
+                            var resetModel = JsonConvert.DeserializeObject<Account.ResetRequestModel>(resetData);
+
+                            response.AppendHeader("Access-Control-Allow-Origin", "*");
+                            response.AppendHeader("Access-Control-Allow-Methods", "POST, GET");
+
+                            //1. Is the data valid?
+                            if (!resetModel.IsRequestValid())
+                            {
+                                response.StatusCode = 400; //Bad Request
+                                byte[] ResetResponseData = Encoding.UTF8.GetBytes("false");
+
+                                response.ContentLength64 = ResetResponseData.Length;
+                                response.OutputStream.Write(ResetResponseData, 0, ResetResponseData.Length);
+                                response.OutputStream.Close();
+                            }
+
+                            //2. Does the token exist?
+                            resetModel.Token = HttpUtility.UrlDecode(resetModel.Token);
+                            if (!client.IsTokenValid(resetModel.Token))
+                            {
+                                responseString = Encoding.UTF8.GetBytes("false");
+                                response.StatusCode = 404; //Not Found
+
+                                response.ContentLength64 = responseString.Length;
+                                response.OutputStream.Write(responseString, 0, responseString.Length);
+                                response.OutputStream.Close();
+
+                                break;
+                            }
+
+                            //3. Was the reset successful?
+                            if (!client.AccountPasswordUpdate(resetModel.Token, resetModel.Password))
+                            {
+                                responseString = Encoding.UTF8.GetBytes("false");
+                                response.StatusCode = 500; //Internal Server Error
+
+                                response.ContentLength64 = responseString.Length;
+                                response.OutputStream.Write(responseString, 0, responseString.Length);
+                                response.OutputStream.Close();
+
+                                break;
+                            }
+
+                            responseString = Encoding.UTF8.GetBytes("true");
+                            response.StatusCode = 200; //Ok
+
+                            response.ContentLength64 = responseString.Length;
+                            response.OutputStream.Write(responseString, 0, responseString.Length);
+                            response.OutputStream.Close();
+
+                            break;
+                        }
 
                         //Infantry Login
                         string loginData = new StreamReader(request.InputStream).ReadToEnd();
