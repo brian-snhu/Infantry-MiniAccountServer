@@ -91,7 +91,57 @@ namespace MiniAccountServer
                         //We verifying a password reset token?
                         if (request.Url.AbsolutePath.Contains("verify-token"))
                         {
-                            //TODO: check for token and verify its data
+                            string tokenData = request.QueryString["token"];
+
+                            response.AppendHeader("Access-Control-Allow-Origin", "*");
+                            response.AppendHeader("Access-Control-Allow-Methods", "POST, GET");
+
+                            //1. Does the token exist?
+                            if (!client.IsTokenValid(tokenData))
+                            {
+                                responseString = Encoding.UTF8.GetBytes("false");
+                                response.StatusCode = 404; //Not Found
+
+                                response.ContentLength64 = responseString.Length;
+                                response.OutputStream.Write(responseString, 0, responseString.Length);
+                                response.OutputStream.Close();
+
+                                break;
+                            }
+
+                            //2. Did the token expire?
+                            if (client.TokenExpired(tokenData))
+                            {
+                                responseString = Encoding.UTF8.GetBytes("false");
+                                response.StatusCode = 400; //Bad Request
+
+                                response.ContentLength64 = responseString.Length;
+                                response.OutputStream.Write(responseString, 0, responseString.Length);
+                                response.OutputStream.Close();
+
+                                break;
+                            }
+
+                            //3. Was the token used already?
+                            if (client.TokenUsed(tokenData))
+                            {
+                                responseString = Encoding.UTF8.GetBytes("false");
+                                response.StatusCode = 409; //Conflict
+
+                                response.ContentLength64 = responseString.Length;
+                                response.OutputStream.Write(responseString, 0, responseString.Length);
+                                response.OutputStream.Close();
+
+                                break;
+                            }
+
+                            responseString = Encoding.UTF8.GetBytes("true");
+                            response.StatusCode = 200; //Ok
+
+                            response.ContentLength64 = responseString.Length;
+                            response.OutputStream.Write(responseString, 0, responseString.Length);
+                            response.OutputStream.Close();
+
                             break;
                         }
 

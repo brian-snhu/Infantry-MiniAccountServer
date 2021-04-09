@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Data.SqlClient;
-using System.Xml;
 using MiniAccountServer.Models;
 using MiniAccountServer.Helpers;
 using MiniAccountServer.Helpers.Config;
@@ -470,9 +469,70 @@ namespace MiniAccountServer.Database
         /// </summary>
         public bool AccountPasswordUpdate(string token, string password)
         {
-            //TODO: Do the reset password for the server side here and send a true or false back to the user
+            string username = null;
 
-            return false;
+            //Get the username first
+            var cmd = new SqlCommand(_strTokenExists, _connection);
+
+            cmd.Parameters.AddWithValue("@token", token);
+
+            using (var reader = cmd.ExecuteReader())
+            {
+                if (!reader.HasRows)
+                    return false;
+
+                reader.Read();
+                reader.GetInt64(0); //ID
+                reader.GetInt64(1); //Account ID
+                username = reader.GetString(2); //Name
+
+                reader.Close();
+            }
+
+            if (string.IsNullOrEmpty(username))
+                return false;
+
+            //Does the username exist in the account structure?
+            if (!UsernameExists(username))
+                return false;
+
+            //Did it encrypt correctly?
+            if ((password = Crypto.Hash(password)) == null)
+                return false;
+
+            //Update the password
+            var update = new SqlCommand(_strPasswordUpdate, _connection);
+
+            update.Parameters.AddWithValue("@name", username);
+            update.Parameters.AddWithValue("@password", password);
+
+            try
+            {
+                update.ExecuteNonQuery();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.ToString());
+                return false;
+            }
+
+            //Finally, update the token as used and save
+            update = new SqlCommand(_strMarkTokenUsed, _connection);
+
+            update.Parameters.AddWithValue("@token", token);
+            update.Parameters.AddWithValue("@tokenUsed", true);
+
+            try
+            {
+                update.ExecuteNonQuery();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.ToString());
+                return false;
+            }
+
+            return true;
         }
 
         /// <summary>
